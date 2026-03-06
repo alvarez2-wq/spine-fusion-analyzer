@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { viteCommonjs } from '@originjs/vite-plugin-commonjs'
 
 export default defineConfig({
+  base: '/spine-fusion-analyzer/',
   plugins: [react(), viteCommonjs()],
   server: {
     port: 3100,
@@ -28,7 +29,8 @@ export default defineConfig({
   build: {
     target: 'esnext',
     commonjsOptions: {
-      include: [/codec/, /dicom-parser/],
+      // Include VTK.js and all its CJS deps in the CommonJS transform
+      include: [/codec/, /dicom-parser/, /node_modules/],
     },
   },
 })
