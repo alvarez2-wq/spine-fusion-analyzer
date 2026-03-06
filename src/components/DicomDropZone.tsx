@@ -218,7 +218,7 @@ export default function DicomDropZone({ onLoaded }: DicomDropZoneProps) {
         for (let i = start; i <= end; i++) {
           const name = String(i).padStart(8, '0') + '.dcm';
           batch.push(
-            fetch(`/sample-data/spine-ct/${name}`)
+            fetch(`${import.meta.env.BASE_URL}sample-data/spine-ct/${name}`)
               .then(r => r.blob())
               .then(blob => new File([blob], name, { type: 'application/dicom' }))
           );
