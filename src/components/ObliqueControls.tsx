@@ -65,14 +65,22 @@ function normalize(v: [number, number, number]): [number, number, number] {
 }
 
 /**
- * Apply Euler rotations (Ry * Rx * Rz) to base vectors to compute
+ * Apply intrinsic Euler rotations to base vectors to compute
  * the final viewPlaneNormal and viewUp for the oblique viewport.
  *
  * Base orientation is sagittal:
  *   viewPlaneNormal = [1, 0, 0]  (looking from the right side)
  *   viewUp           = [0, 0, 1]  (superior is up)
  *
- * Rotation order: Ry(swivel) * Rx(tilt) * Rz(spin) applied to each base vector.
+ * Axis mapping (relative to sagittal base):
+ *   Tilt  (pitch) → Ry  — tips the view up/down (around horizontal Y axis)
+ *   Swivel (yaw)  → Rz  — turns the view left/right (around vertical Z axis)
+ *   Spin  (roll)  → Rx  — rotates the image in-plane (around viewing X axis)
+ *
+ * Intrinsic Z'Y'X'' order (swivel in base frame → tilt in swiveled frame
+ * → spin in tilted frame) equals extrinsic X→Y→Z (spin→tilt→swivel in
+ * world frame). This ensures each slider behaves intuitively regardless
+ * of the other sliders' values.
  */
 function computePlaneVectors(
   tiltDeg: number,
@@ -87,17 +95,19 @@ function computePlaneVectors(
   let normal: [number, number, number] = [1, 0, 0];
   let viewUp: [number, number, number] = [0, 0, 1];
 
-  // Apply Rz (spin) first
-  normal = rotateZ(normal, spinRad);
-  viewUp = rotateZ(viewUp, spinRad);
+  // Extrinsic X → Y → Z  (= intrinsic Z' → Y' → X'')
 
-  // Then Rx (tilt)
-  normal = rotateX(normal, tiltRad);
-  viewUp = rotateX(viewUp, tiltRad);
+  // 1. Spin (roll) — Rx — in-plane rotation around the viewing axis
+  normal = rotateX(normal, spinRad);
+  viewUp = rotateX(viewUp, spinRad);
 
-  // Then Ry (swivel)
-  normal = rotateY(normal, swivelRad);
-  viewUp = rotateY(viewUp, swivelRad);
+  // 2. Tilt (pitch) — Ry — tips the view up/down
+  normal = rotateY(normal, tiltRad);
+  viewUp = rotateY(viewUp, tiltRad);
+
+  // 3. Swivel (yaw) — Rz — turns the view left/right
+  normal = rotateZ(normal, swivelRad);
+  viewUp = rotateZ(viewUp, swivelRad);
 
   return {
     normal: normalize(normal),

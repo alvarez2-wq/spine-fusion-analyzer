@@ -127,6 +127,7 @@ export default function MPRViewer({
   hasLabelmapData,
   show3DSurface,
 }: MPRViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const axialRef = useRef<HTMLDivElement>(null);
   const sagittalRef = useRef<HTMLDivElement>(null);
   const coronalRef = useRef<HTMLDivElement>(null);
@@ -659,10 +660,40 @@ export default function MPRViewer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [volumeId]);
 
+  // Dynamically resize Cornerstone viewports when the container size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const resizeObserver = new ResizeObserver(() => {
+      // Debounce to avoid excessive resize calls during continuous window drag
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const engine = renderingEngineRef.current;
+        if (!engine) return;
+        try {
+          engine.resize(true, true);
+          engine.render();
+        } catch {
+          // Ignore resize errors (e.g. during teardown)
+        }
+      }, 50);
+    });
+
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, []);
+
   // --- Layout ---
 
   return (
-    <div style={{
+    <div ref={containerRef} style={{
       display: 'flex',
       flexDirection: 'row',
       width: '100%',
