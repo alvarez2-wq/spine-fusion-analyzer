@@ -250,10 +250,20 @@ export default function ObliqueControls({ onPlaneChange, onAnglesChange }: Obliq
   );
 
   const handleReset = useCallback(() => {
+    // Directly apply the base sagittal orientation (same pattern as handlePreset).
+    // We can't rely on the useEffect alone because if the angles are already 0
+    // (e.g. after a preset was applied), React won't re-trigger the effect.
+    presetApplied.current = true;
     setTilt(0);
     setSpin(0);
     setSwivel(0);
-  }, []);
+    const baseNormal: [number, number, number] = [1, 0, 0];
+    const baseViewUp: [number, number, number] = [0, 0, 1];
+    setCurrentNormal(baseNormal);
+    setCurrentViewUp(baseViewUp);
+    onPlaneChange(baseNormal, baseViewUp);
+    onAnglesChange?.({ tilt: 0, spin: 0, swivel: 0 });
+  }, [onPlaneChange, onAnglesChange]);
 
   const formatVec = (v: [number, number, number]) =>
     `[${v[0].toFixed(3)}, ${v[1].toFixed(3)}, ${v[2].toFixed(3)}]`;
