@@ -126,6 +126,15 @@ export default function App() {
     []
   );
 
+  // Callback for trackball rotation on the oblique viewport
+  const handleObliqueCameraChange = useCallback(
+    (normal: [number, number, number], viewUp: [number, number, number]) => {
+      setObliquePlaneNormal(normal);
+      setObliqueViewUp(viewUp);
+    },
+    []
+  );
+
   const handleToolChange = useCallback((toolName: string) => {
     setActiveTool(toolName);
   }, []);
@@ -307,6 +316,7 @@ export default function App() {
             navigationTarget={navigationTarget}
             hasLabelmapData={labelmapData !== null}
             show3DSurface={show3DSurface}
+            onObliqueCameraChange={handleObliqueCameraChange}
           />
         </div>
 
@@ -324,6 +334,8 @@ export default function App() {
           <ObliqueControls
             onPlaneChange={handlePlaneChange}
             onAnglesChange={handleAnglesChange}
+            actualNormal={obliquePlaneNormal}
+            actualViewUp={obliqueViewUp}
           />
           <VertebraPanel
             vertebrae={vertebrae}

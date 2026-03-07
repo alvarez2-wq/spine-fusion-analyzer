@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import {
   RenderingEngine,
   Enums,
@@ -26,6 +26,7 @@ import type { SeriesMetadata } from '../types';
 import { RENDERING_ENGINE_ID, TOOLGROUP_ID, VIEWPORT_IDS } from '../lib/constants';
 import { getLabelmapStore } from '../lib/labelmapStore';
 import { generateSurfaceMeshActor, disposeSurfaceMeshActor } from '../lib/surfaceMeshGenerator';
+import { OBLIQUE_ROTATE_TOOL } from './Toolbar';
 
 interface MPRViewerProps {
   volumeId: string;
@@ -39,6 +40,40 @@ interface MPRViewerProps {
   navigationTarget?: [number, number, number] | null;
   hasLabelmapData?: boolean;
   show3DSurface?: boolean;
+  onObliqueCameraChange?: (normal: [number, number, number], viewUp: [number, number, number]) => void;
+}
+
+// --- Trackball rotation math ---
+
+function vec3Normalize(v: [number, number, number]): [number, number, number] {
+  const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+  if (len < 1e-10) return [0, 0, 1];
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+
+function vec3Cross(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+/** Rodrigues' rotation formula — rotate vec around axis by angle (radians) */
+function rotateAroundAxis(
+  vec: [number, number, number],
+  axis: [number, number, number],
+  angle: number,
+): [number, number, number] {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const dot = vec[0] * axis[0] + vec[1] * axis[1] + vec[2] * axis[2];
+  const cross = vec3Cross(axis, vec);
+  return [
+    vec[0] * c + cross[0] * s + axis[0] * dot * (1 - c),
+    vec[1] * c + cross[1] * s + axis[1] * dot * (1 - c),
+    vec[2] * c + cross[2] * s + axis[2] * dot * (1 - c),
+  ];
 }
 
 // --- Styles ---
@@ -126,6 +161,7 @@ export default function MPRViewer({
   navigationTarget,
   hasLabelmapData,
   show3DSurface,
+  onObliqueCameraChange,
 }: MPRViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const axialRef = useRef<HTMLDivElement>(null);
@@ -136,6 +172,12 @@ export default function MPRViewer({
 
   const renderingEngineRef = useRef<RenderingEngine | null>(null);
   const toolGroupRef = useRef<ReturnType<typeof ToolGroupManager.createToolGroup> | undefined>(undefined);
+
+  // Trackball rotation state
+  const [isRotating, setIsRotating] = useState(false);
+  const lastMouseRef = useRef<{ x: number; y: number } | null>(null);
+  // Ref to suppress the camera useEffect when trackball sets the camera directly
+  const trackballUpdateRef = useRef(false);
   const surfaceActorRef = useRef<ReturnType<typeof generateSurfaceMeshActor> | null>(null);
   const vtkRenderRef = useRef<ReturnType<typeof vtkGenericRenderWindow.newInstance> | null>(null);
   const surfaceVersionRef = useRef(0);
@@ -288,6 +330,12 @@ export default function MPRViewer({
 
   // Update oblique viewport camera when plane normal or viewUp changes
   useEffect(() => {
+    // Skip if this change originated from the trackball (camera already set)
+    if (trackballUpdateRef.current) {
+      trackballUpdateRef.current = false;
+      return;
+    }
+
     const engine = renderingEngineRef.current;
     if (!engine) return;
 
@@ -300,6 +348,11 @@ export default function MPRViewer({
         viewUp: obliqueViewUp as Types.Point3,
       });
       obliqueViewport.render();
+
+      // Also re-render axial/sagittal/coronal so reference lines stay in sync
+      engine.renderViewports([
+        VIEWPORT_IDS.AXIAL, VIEWPORT_IDS.SAGITTAL, VIEWPORT_IDS.CORONAL,
+      ]);
     } catch (err) {
       console.error('[MPRViewer] Error updating oblique camera:', err);
     }
@@ -328,12 +381,15 @@ export default function MPRViewer({
     }
 
     // Selected tool on left click
+    // ObliqueRotate is handled by our own overlay, not Cornerstone tools —
+    // fall back to WindowLevel for the Cornerstone tool binding
+    const csToolName = activeTool === OBLIQUE_ROTATE_TOOL ? WindowLevelTool.toolName : activeTool;
     try {
-      toolGroup.setToolActive(activeTool, {
+      toolGroup.setToolActive(csToolName, {
         bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
       });
     } catch (err) {
-      console.error(`[MPRViewer] Error activating ${activeTool}:`, err);
+      console.error(`[MPRViewer] Error activating ${csToolName}:`, err);
     }
 
     // Pan always on middle click
@@ -690,6 +746,77 @@ export default function MPRViewer({
     };
   }, []);
 
+  // --- Trackball rotation handlers for the oblique viewport ---
+
+  const handleRotateStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsRotating(true);
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const handleRotateMove = useCallback((e: React.MouseEvent) => {
+    if (!isRotating || !lastMouseRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dx = e.clientX - lastMouseRef.current.x;
+    const dy = e.clientY - lastMouseRef.current.y;
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+
+    const engine = renderingEngineRef.current;
+    if (!engine) return;
+    const obliqueVp = engine.getViewport(VIEWPORT_IDS.OBLIQUE);
+    if (!obliqueVp) return;
+
+    const camera = obliqueVp.getCamera();
+    let normal = camera.viewPlaneNormal as [number, number, number];
+    let viewUp = camera.viewUp as [number, number, number];
+    if (!normal || !viewUp) return;
+
+    const sensitivity = 0.005; // radians per pixel
+
+    // Horizontal drag → rotate around viewUp (yaw)
+    if (Math.abs(dx) > 0) {
+      normal = rotateAroundAxis(normal, viewUp, -dx * sensitivity);
+    }
+
+    // Vertical drag → rotate around right vector (pitch)
+    if (Math.abs(dy) > 0) {
+      const right = vec3Normalize(vec3Cross(viewUp, normal));
+      normal = rotateAroundAxis(normal, right, dy * sensitivity);
+      viewUp = rotateAroundAxis(viewUp, right, dy * sensitivity);
+    }
+
+    normal = vec3Normalize(normal);
+    viewUp = vec3Normalize(viewUp);
+
+    // Apply directly to the viewport camera
+    obliqueVp.setCamera({
+      viewPlaneNormal: normal as Types.Point3,
+      viewUp: viewUp as Types.Point3,
+    });
+    obliqueVp.render();
+
+    // Re-render small viewports to update reference lines
+    engine.renderViewports([
+      VIEWPORT_IDS.AXIAL, VIEWPORT_IDS.SAGITTAL, VIEWPORT_IDS.CORONAL,
+    ]);
+
+    // Notify parent (mark as trackball update to skip the camera useEffect echo)
+    trackballUpdateRef.current = true;
+    onObliqueCameraChange?.(normal, viewUp);
+  }, [isRotating, onObliqueCameraChange]);
+
+  const handleRotateEnd = useCallback(() => {
+    setIsRotating(false);
+    lastMouseRef.current = null;
+  }, []);
+
+  const isRotateToolActive = activeTool === OBLIQUE_ROTATE_TOOL;
+
   // --- Layout ---
 
   return (
@@ -713,6 +840,22 @@ export default function MPRViewer({
           OBLIQUE - Cage Aligned
         </div>
         <div ref={obliqueRef} style={{ width: '100%', height: '100%' }} />
+
+        {/* Trackball rotation overlay — captures mouse events when 3D tool is active */}
+        {isRotateToolActive && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 20,
+              cursor: isRotating ? 'grabbing' : 'grab',
+            }}
+            onMouseDown={handleRotateStart}
+            onMouseMove={handleRotateMove}
+            onMouseUp={handleRotateEnd}
+            onMouseLeave={handleRotateEnd}
+          />
+        )}
       </div>
 
       {/* Small viewports stacked vertically */}

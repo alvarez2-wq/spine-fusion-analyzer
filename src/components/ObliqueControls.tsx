@@ -6,6 +6,9 @@ interface ObliqueControlsProps {
     viewUp: [number, number, number]
   ) => void;
   onAnglesChange?: (angles: { tilt: number; spin: number; swivel: number }) => void;
+  /** Actual camera vectors (from trackball or other external source) for display */
+  actualNormal?: [number, number, number];
+  actualViewUp?: [number, number, number];
 }
 
 /**
@@ -220,7 +223,7 @@ const vectorDisplayStyle: React.CSSProperties = {
   lineHeight: '1.6',
 };
 
-export default function ObliqueControls({ onPlaneChange, onAnglesChange }: ObliqueControlsProps) {
+export default function ObliqueControls({ onPlaneChange, onAnglesChange, actualNormal, actualViewUp }: ObliqueControlsProps) {
   const [tilt, setTilt] = useState(0);
   const [spin, setSpin] = useState(0);
   const [swivel, setSwivel] = useState(0);
@@ -379,8 +382,8 @@ export default function ObliqueControls({ onPlaneChange, onAnglesChange }: Obliq
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <div style={sectionTitleStyle}>Current Vectors</div>
         <div style={vectorDisplayStyle}>
-          <div>Normal: {formatVec(currentNormal)}</div>
-          <div>ViewUp: {formatVec(currentViewUp)}</div>
+          <div>Normal: {formatVec(actualNormal ?? currentNormal)}</div>
+          <div>ViewUp: {formatVec(actualViewUp ?? currentViewUp)}</div>
         </div>
       </div>
     </div>

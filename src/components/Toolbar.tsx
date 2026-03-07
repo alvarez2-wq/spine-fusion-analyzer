@@ -23,10 +23,14 @@ interface ToolDef {
   icon: string;
 }
 
+// Custom tool name for oblique trackball rotation (not a Cornerstone tool)
+export const OBLIQUE_ROTATE_TOOL = 'ObliqueRotate';
+
 const TOOLS: ToolDef[] = [
   { name: WindowLevelTool.toolName, label: 'W/L', icon: 'WL' },
   { name: PanTool.toolName, label: 'Pan', icon: 'PAN' },
   { name: ZoomTool.toolName, label: 'Zoom', icon: 'ZM' },
+  { name: OBLIQUE_ROTATE_TOOL, label: 'Rotate Oblique', icon: '3D' },
   { name: LengthTool.toolName, label: 'Length', icon: 'LEN' },
   { name: SplineROITool.toolName, label: 'ROI Contour', icon: 'ROI' },
 ];
